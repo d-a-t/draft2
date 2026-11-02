@@ -1,10 +1,10 @@
 import streamlit as st
+import random
 
 st.set_page_config(page_title="lmc 3403 draft 2", layout="wide")
 
 # ---------------------------------------------------------------- data
 # titles, bodies, scores and comment counts are all generated below (lorem ipsum + random numbers).
-import random
 
 POSTS = [
     {"id": 1, "sub": "r/todayilearned", "author": "u/tentacle_fan", "age": "3h", "flair": "Science", "kind": "image", "thumb": "🐙", "color": "#6a5acd"},
@@ -58,6 +58,24 @@ for _p in POSTS + [AD]:
 RULES = ["1. Be civil and constructive", "2. No spam or self-promotion", "3. do you actually read this?", "4. deadlock is actually a p good game", "5. i saw a duck yesterday and it was very cute", "6. hello dr kim"]
 FLAIRS = ["All", "Science", "Discussion", "Setup", "Health", "Feedback", "Progress", "Megathread"]
 
+# ---------------------------------------------------------------- density presets (hybrid view)
+# Suggested by Harry: let users choose how compact posts are, up to Old-Reddit-level density.
+#   pad       = vertical padding inside each post row (px)
+#   thumb     = thumbnail size (px)
+#   gap       = vertical gap between rows (rem)
+#   title/meta= font sizes (rem)
+#   exp_pad / exp_font = size of the "Quick preview" toggle row
+#   btn_lh    = line height of the vote button (smaller = shorter row)
+#   inline    = put the meta line (sub, author, age, comments) on the same line as the title
+#   snip      = number of characters in the mini preview teaser
+#   ad_spacer = spacing under the sponsored row (it has no preview drawer)
+DENSITY = {
+    "Comfortable":   dict(pad=12, thumb=56, gap=0.90, title=1.00, meta=0.78, exp_pad=0.50, exp_font=0.90, btn_lh=1.6, inline=False, snip=70, ad_spacer=21),
+    "Cozy":          dict(pad=8,  thumb=44, gap=0.60, title=0.98, meta=0.76, exp_pad=0.35, exp_font=0.85, btn_lh=1.4, inline=False, snip=60, ad_spacer=18),
+    "Compact":       dict(pad=4,  thumb=34, gap=0.40, title=0.95, meta=0.74, exp_pad=0.20, exp_font=0.80, btn_lh=1.2, inline=False, snip=55, ad_spacer=14),
+    "yea this is wayy too small": dict(pad=1,  thumb=22, gap=0.40, title=0.88, meta=0.68, exp_pad=0.05, exp_font=0.50, btn_lh=1.0, inline=True,  snip=28, ad_spacer=2),
+}
+
 # ---------------------------------------------------------------- state
 if "votes" not in st.session_state:
     st.session_state.votes = {}  # post id -> 1 / -1 / 0
@@ -66,6 +84,16 @@ if "votes" not in st.session_state:
 with st.sidebar:
     st.header("View settings")
     mode = st.radio("Layout", ["Old Reddit", "New Reddit (Cards)", "Hybrid (Compact Card)"], index=2)
+    is_hybrid = mode == "Hybrid (Compact Card)"
+    density = st.select_slider(
+        "Density",
+        options=list(DENSITY),
+        value="Compact",
+        disabled=not is_hybrid,
+        help="How tightly posts are packed in the Hybrid layout. Ultra-compact is close to Old Reddit.",
+    )
+    if not is_hybrid:
+        st.caption("Density applies to the Hybrid layout.")
     dark = st.toggle("Dark mode", value=True)
     show_thumbs = st.toggle("Show thumbnails", value=True)
     show_ads = st.toggle("Show sponsored posts", value=True)
@@ -73,6 +101,8 @@ with st.sidebar:
     sort = st.selectbox("Sort", ["Hot", "Top", "New", "Most comments"])
     flair_filter = st.selectbox("Filter by flair", FLAIRS)
     st.caption("Tip: switch layouts and compare how many posts fit on one screen.")
+
+D = DENSITY[density]
 
 # ---------------------------------------------------------------- theme + css
 if dark:
@@ -84,8 +114,22 @@ if mode == "Old Reddit":
     if dark:
         bg, panel, text, muted, border, link = "#1b1b1b", "#222222", "#dddddd", "#888888", "#333333", "#7aa7ff"
 
-pad = 4          # fixed compact density for the hybrid view
-thumb_px = 34
+pad = D["pad"] if is_hybrid else 4
+thumb_px = D["thumb"]
+
+# extra css that only applies to the hybrid view, driven by the density preset
+density_css = ""
+if is_hybrid:
+    density_css = f"""
+[data-testid="stMain"] [data-testid="stVerticalBlock"] {{ gap:{D['gap']}rem; }}
+.hybrid .title {{ font-size:{D['title']}rem; }}
+.hybrid .meta {{ font-size:{D['meta']}rem; }}
+.hybrid .flair {{ font-size:{0.62 if D['inline'] else 0.7}rem; padding:{0 if D['inline'] else 1}px 7px; }}
+.hybrid .inline-meta {{ margin-left:10px; }}
+.stButton>button {{ line-height:{D['btn_lh']}; }}
+div[data-testid="stExpander"] summary {{ padding:{D['exp_pad']}rem 0.6rem !important; min-height:0 !important; }}
+div[data-testid="stExpander"] summary p {{ font-size:{D['exp_font']}rem; }}
+"""
 
 # did you know how much i hate doing this? markdown SUCKS, maybe one good thing ai is used for is this css and html bullshit
 st.markdown(f"""
@@ -114,6 +158,7 @@ st.markdown(f"""
 .stButton>button {{ border:none; background:transparent; color:{muted}; padding:0 4px; min-height:0; font-size:.8rem; }}
 .stButton>button:hover {{ color:{accent}; background:transparent; }}
 div[data-testid="stExpander"] {{ border:none; }}
+{density_css}
 </style>
 """, unsafe_allow_html=True)
 
@@ -175,18 +220,23 @@ def render_hybrid(p):
         if show_thumbs:
             st.markdown(thumb_html(p, thumb_px), unsafe_allow_html=True)
     with c3:
+        # ultra-compact keeps the title and meta info on a single line, like Old Reddit
+        if D["inline"]:
+            meta_html = f"<span class='meta inline-meta'>{meta_line(p)}</span>"
+        else:
+            meta_html = f"<br><span class='meta'>{meta_line(p)}</span>"
         st.markdown(f"<div class='hybrid{ad_cls}'><span class='title'>{p['title']}</span>"
-                    f"<span class='flair'>{p['flair']}</span><br><span class='meta'>{meta_line(p)}</span></div>",
+                    f"<span class='flair'>{p['flair']}</span>{meta_html}</div>",
                     unsafe_allow_html=True)
         if p["kind"] != "ad":
-            with st.expander(mini_preview(p)):
+            with st.expander(mini_preview(p, D["snip"])):
                 if p["kind"] == "image":
                     st.markdown(f"<div class='media' style='background:{p['color']}33;height:160px'>{p['thumb']}</div>",
                                 unsafe_allow_html=True)
                 st.write(p["body"])
         else:
             # ads have no preview drawer, so add spacing to match the other rows
-            st.markdown("<div style='height:21px'></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='height:{D['ad_spacer']}px'></div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- page
 st.markdown(f"""
@@ -208,7 +258,7 @@ if show_ads and feed:
 main, side = st.columns([3.2, 1])
 
 with main:
-    st.caption(f"{len(feed)} posts in this view")
+    st.caption(f"{len(feed)} posts in this view" + (f" · {density} density" if is_hybrid else ""))
     renderer = {"Old Reddit": render_old, "New Reddit (Cards)": render_card, "Hybrid (Compact Card)": render_hybrid}[mode]
     for p in feed:
         renderer(p)
