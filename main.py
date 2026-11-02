@@ -90,7 +90,7 @@ with st.sidebar:
         options=list(DENSITY),
         value="Compact",
         disabled=not is_hybrid,
-        help="How tightly posts are packed in the Hybrid layout. Ultra-compact is close to Old Reddit.",
+        help="How tightly posts are packed in the Hybrid layout. Compact is close to Old Reddit.",
     )
     if not is_hybrid:
         st.caption("Density applies to the Hybrid layout.")
